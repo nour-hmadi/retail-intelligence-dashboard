@@ -1,0 +1,197 @@
+// ============================================================
+// Retail & Logistics Intelligence Dashboard
+// GALAXY SCHEMA - one fact table per business process,
+// sharing conformed dimensions.
+//
+// Generated from the live PostgreSQL schema by make_diagram.py,
+// so this file can never drift from the real database.
+// ============================================================
+
+Table dim_date {
+  date_id int [pk]
+  date date
+  month smallint
+  quarter smallint
+  year smallint
+  Note: 'Conformed date dimension, keyed yyyymmdd.'
+}
+
+Table dim_product {
+  item_number int [pk]
+  barcode varchar
+  description_en varchar
+  description_ar varchar
+  brand varchar
+  category varchar
+  pack_size varchar
+  uom varchar
+  vendor_id int [ref: > dim_vendor.vendor_id]
+  unit_cost decimal
+  unit_price decimal
+  season varchar
+  Note: 'Conformed dimension. Brand, category, pack_size and vendor are four independent attributes, not hierarchy levels.'
+}
+
+Table dim_staff {
+  staff_id int [pk]
+  staff_name varchar
+  store_id int [ref: > dim_store.store_id]
+  role varchar
+  Note: 'Cashiers and head-office buyers.'
+}
+
+Table dim_store {
+  store_id int [pk]
+  store_code varchar
+  store_name varchar
+  store_type varchar
+  store_size varchar
+  region varchar
+  Note: 'Conformed dimension shared by every process.'
+}
+
+Table dim_vendor {
+  vendor_id int [pk]
+  vendor_name varchar
+  supply_model varchar
+  Note: 'supply_model marks VMI / direct-store-delivery vendors, which deliver with no prior PO. Exclude them from lead-time analysis.'
+}
+
+Table fact_adjustment {
+  adjustment_id int [pk]
+  item_number int [ref: > dim_product.item_number]
+  store_id int [ref: > dim_store.store_id]
+  date_id int [ref: > dim_date.date_id]
+  posting_date date
+  adjustment_type varchar
+  quantity int
+  amount decimal
+  reason varchar
+  Note: 'CORRECTING. Shrinkage, stock counts, damage, expiry. No document, so no header/line split.'
+}
+
+Table fact_goods_receipt {
+  goods_receipt_id int [pk]
+  gr_number varchar
+  purchase_order_id int [ref: > fact_purchase_order.purchase_order_id]
+  supplier_invoice_number varchar
+  vendor_id int [ref: > dim_vendor.vendor_id]
+  store_id int [ref: > dim_store.store_id]
+  posting_date date
+  date_id int [ref: > dim_date.date_id]
+  is_supplier_return boolean
+  total_amount decimal
+  Note: 'RECEIVING. Stock changes HERE, not at ordering. purchase_order_id is nullable for VMI / direct delivery. The supplier invoice belongs to the delivery, not the order.'
+}
+
+Table fact_goods_receipt_line {
+  gr_line_id bigint [pk]
+  goods_receipt_id int [ref: > fact_goods_receipt.goods_receipt_id]
+  po_line_id bigint [ref: > fact_purchase_order_line.po_line_id]
+  item_number int [ref: > dim_product.item_number]
+  store_id int [ref: > dim_store.store_id]
+  date_id int [ref: > dim_date.date_id]
+  quantity_received int
+  amount decimal
+  Note: 'RECEIVING. One PO line can have several of these (partial delivery). Aggregate before joining or fill rate fans out.'
+}
+
+Table fact_purchase_order {
+  purchase_order_id int [pk]
+  po_number varchar
+  vendor_id int [ref: > dim_vendor.vendor_id]
+  store_id int [ref: > dim_store.store_id]
+  buyer_staff_id int [ref: > dim_staff.staff_id]
+  order_date date
+  date_id int [ref: > dim_date.date_id]
+  total_amount decimal
+  Note: 'ORDERING. Raising a PO does NOT move stock. Excluded from vw_stock_movement.'
+}
+
+Table fact_purchase_order_line {
+  po_line_id bigint [pk]
+  purchase_order_id int [ref: > fact_purchase_order.purchase_order_id]
+  item_number int [ref: > dim_product.item_number]
+  store_id int [ref: > dim_store.store_id]
+  date_id int [ref: > dim_date.date_id]
+  quantity_ordered int
+  amount decimal
+  Note: 'ORDERING. quantity_ordered only. Compare against goods received for fill rate.'
+}
+
+Table fact_receipt {
+  receipt_id int [pk]
+  store_id int [ref: > dim_store.store_id]
+  date_id int [ref: > dim_date.date_id]
+  receipt_datetime datetime
+  staff_id int [ref: > dim_staff.staff_id]
+  total_amount decimal
+  total_items int
+  Note: 'SELLING. Transaction header. total_amount and total_items are the basket measures.'
+}
+
+Table fact_receipt_line {
+  receipt_line_id bigint [pk]
+  receipt_id int [ref: > fact_receipt.receipt_id]
+  item_number int [ref: > dim_product.item_number]
+  store_id int [ref: > dim_store.store_id]
+  date_id int [ref: > dim_date.date_id]
+  quantity int
+  amount decimal
+  Note: 'SELLING. Source of truth for sales and customer returns. Positive quantity = sale, negative = customer return. Daily sales are a VIEW over this, never a stored table.'
+}
+
+Table fact_transfer {
+  transfer_id int [pk]
+  transfer_number varchar
+  from_store_id int [ref: > dim_store.store_id]
+  to_store_id int [ref: > dim_store.store_id]
+  shipment_date date
+  posting_date date
+  date_id int [ref: > dim_date.date_id]
+  total_amount decimal
+  Note: 'TRANSFERRING. Two stores per document. shipment_date vs posting_date.'
+}
+
+Table fact_transfer_line {
+  transfer_line_id bigint [pk]
+  transfer_id int [ref: > fact_transfer.transfer_id]
+  item_number int [ref: > dim_product.item_number]
+  date_id int [ref: > dim_date.date_id]
+  quantity_shipped int
+  quantity_received int
+  amount decimal
+  Note: 'TRANSFERRING. quantity_shipped - quantity_received = in-transit loss. Becomes TWO rows in vw_stock_movement: OUT at origin, IN at destination.'
+}
+
+TableGroup conformed_dimensions {
+  dim_date
+  dim_product
+  dim_staff
+  dim_store
+  dim_vendor
+}
+
+TableGroup selling {
+  fact_receipt
+  fact_receipt_line
+}
+
+TableGroup ordering_no_stock_effect {
+  fact_purchase_order
+  fact_purchase_order_line
+}
+
+TableGroup receiving_stock_moves_here {
+  fact_goods_receipt
+  fact_goods_receipt_line
+}
+
+TableGroup transferring {
+  fact_transfer
+  fact_transfer_line
+}
+
+TableGroup correcting {
+  fact_adjustment
+}
