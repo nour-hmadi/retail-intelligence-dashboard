@@ -191,7 +191,7 @@ CREATE TABLE fact_adjustment (
     date_id         INTEGER REFERENCES dim_date(date_id),
     posting_date    DATE,
     adjustment_type VARCHAR(30),              -- shrinkage / stock_count / damage / expiry
-    quantity        INTEGER,                  -- always positive; direction implied by type
+    quantity        INTEGER,                  -- signed: negative = stock out, positive = stock in
     amount          NUMERIC(12,2),
     reason          VARCHAR(100)
 );

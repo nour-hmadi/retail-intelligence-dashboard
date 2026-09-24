@@ -307,9 +307,10 @@ def generate(P, outdir):
             if rng.random()<0.30:
                 d=dates[int(rng.integers(0,len(dates)))]
                 q=int(rng.integers(1,6)); at=str(rng.choice(ADJ_TYPES,p=[0.45,0.25,0.15,0.15]))
+                qs = q if (at=="stock_count" and rng.random()<0.40) else -q
                 adjustments.append((aid,int(it),int(s),int(d.strftime("%Y%m%d")),d.isoformat(),
-                                    at,q,round(q*cost[int(it)],2),ADJ_REASON[at])); aid+=1
-                adj_out[(int(it),int(s))]=adj_out.get((int(it),int(s)),0)+q
+                                    at,qs,round(qs*cost[int(it)],2),ADJ_REASON[at])); aid+=1
+                adj_out[(int(it),int(s))]=adj_out.get((int(it),int(s)),0)-qs
 
     # =========================================================
     # PROCESS 2 — ORDERING + RECEIVING
@@ -420,7 +421,7 @@ def generate(P, outdir):
             if q<=0: continue
             d=dates[int(len(dates)*0.75)]
             adjustments.append((aid,int(it),int(s),int(d.strftime("%Y%m%d")),d.isoformat(),
-                                "stock_count",q,0.0,"Physical count correction")); aid+=1
+                                "stock_count",-q,0.0,"Physical count correction")); aid+=1
             adj_out[k]=adj_out.get(k,0)+q
 
     # =========================================================
@@ -464,4 +465,4 @@ if __name__=="__main__":
     ap.add_argument("--profile",default="sample",choices=list(PROFILES))
     ap.add_argument("--outdir",default=None)
     a=ap.parse_args()
-    generate(PROFILES[a.profile], a.outdir or f"/home/claude/data_{a.profile}")
+    generate(PROFILES[a.profile], a.outdir or f"data_{a.profile}")
