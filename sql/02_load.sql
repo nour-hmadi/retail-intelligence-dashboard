@@ -19,7 +19,7 @@
 \copy dim_staff           (staff_id, staff_name, store_id, role)                                 FROM 'dim_staff.csv'               CSV HEADER
 
 \echo 'Loading selling...'
-\copy fact_receipt        (receipt_id, store_id, date_id, receipt_datetime, staff_id, total_amount, total_items) FROM 'fact_receipt.csv' CSV HEADER
+\copy fact_receipt        (receipt_id, receipt_number, store_id, date_id, receipt_datetime, staff_id, total_amount, total_items) FROM 'fact_receipt.csv' CSV HEADER
 \copy fact_receipt_line   (receipt_line_id, receipt_id, item_number, store_id, date_id, quantity, amount)         FROM 'fact_receiptline.csv' CSV HEADER
 
 \echo 'Loading ordering...'
@@ -27,7 +27,7 @@
 \copy fact_purchase_order_line (po_line_id, purchase_order_id, item_number, store_id, date_id, quantity_ordered, amount)              FROM 'fact_purchaseorderline.csv' CSV HEADER
 
 \echo 'Loading receiving...'
-\copy fact_goods_receipt      (goods_receipt_id, gr_number, purchase_order_id, supplier_invoice_number, vendor_id, store_id, posting_date, date_id, is_supplier_return, total_amount) FROM 'fact_goodsreceipt.csv' CSV HEADER
+\copy fact_goods_receipt      (goods_receipt_id, document_number, purchase_order_id, supplier_invoice_number, vendor_id, store_id, posting_date, date_id, is_supplier_return, total_amount) FROM 'fact_goodsreceipt.csv' CSV HEADER
 \copy fact_goods_receipt_line (gr_line_id, goods_receipt_id, po_line_id, item_number, store_id, date_id, quantity_received, amount)   FROM 'fact_goodsreceiptline.csv' CSV HEADER
 
 \echo 'Loading transferring...'

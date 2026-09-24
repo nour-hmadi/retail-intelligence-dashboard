@@ -39,7 +39,7 @@ SELECT grl.item_number,
        CASE WHEN gr.is_supplier_return THEN 'supplier_return' ELSE 'purchase' END AS movement_type,
        CASE WHEN gr.is_supplier_return THEN 0 ELSE grl.quantity_received END       AS qty_in,
        CASE WHEN gr.is_supplier_return THEN grl.quantity_received ELSE 0 END       AS qty_out,
-       gr.gr_number AS document_number
+       gr.document_number
 FROM   fact_goods_receipt_line grl
 JOIN   fact_goods_receipt      gr USING (goods_receipt_id)
 
