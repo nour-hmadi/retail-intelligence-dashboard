@@ -6,8 +6,7 @@ import subprocess, textwrap, html
 DB = "retail_intelligence"
 
 def q(sql):
-    out = subprocess.run(["su","postgres","-c",
-            f'psql -d {DB} -At -F"|" -c "{sql}"'],
+    out = subprocess.run(["psql","-X","-d",DB,"-At","-F","|","-c",sql],
             capture_output=True, text=True)
     return [l.split("|") for l in out.stdout.strip().splitlines() if l]
 
@@ -113,10 +112,10 @@ dot = f"""digraph schema {{
 {chr(10).join(f'  {s_}:{sc} -> {tt}:{tc};' for s_,sc,tt,tc in fks_raw)}
 }}
 """
-open("/home/claude/schema.dot","w").write(dot)
+open("docs/schema.dot","w").write(dot)
 for fmt in ("png","svg"):
-    r=subprocess.run(["dot",f"-T{fmt}","-Gdpi=150","/home/claude/schema.dot",
-                      "-o",f"/home/claude/schema_diagram.{fmt}"],capture_output=True,text=True)
+    r=subprocess.run(["dot",f"-T{fmt}","-Gdpi=150","docs/schema.dot",
+                      "-o",f"docs/schema_diagram.{fmt}"],capture_output=True,text=True)
     print(fmt, "OK" if r.returncode==0 else r.stderr[:300])
 print(f"tables={len(by_table)} foreign_keys={len(fks_raw)}")
 
@@ -177,5 +176,5 @@ for g in ["conformed_dimensions","selling","ordering_no_stock_effect",
     for t in sorted(groups.get(g,[])): lines.append(f"  {t}")
     lines.append("}"); lines.append("")
 
-open("/home/claude/schema.dbml","w").write("\n".join(lines))
+open("docs/schema.dbml","w").write("\n".join(lines))
 print(f"schema.dbml regenerated from live DB: {len(by_table)} tables, {len(fks_raw)} refs")
