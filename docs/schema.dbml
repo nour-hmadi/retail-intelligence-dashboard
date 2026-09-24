@@ -72,7 +72,7 @@ Table fact_adjustment {
 
 Table fact_goods_receipt {
   goods_receipt_id int [pk]
-  gr_number varchar
+  document_number varchar
   purchase_order_id int [ref: > fact_purchase_order.purchase_order_id]
   supplier_invoice_number varchar
   vendor_id int [ref: > dim_vendor.vendor_id]
@@ -121,6 +121,7 @@ Table fact_purchase_order_line {
 
 Table fact_receipt {
   receipt_id int [pk]
+  receipt_number varchar
   store_id int [ref: > dim_store.store_id]
   date_id int [ref: > dim_date.date_id]
   receipt_datetime datetime
