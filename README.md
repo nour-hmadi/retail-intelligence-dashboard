@@ -1,150 +1,136 @@
-# Retail & Logistics Intelligence Dashboard
+# Retail Dead-Stock Diagnostic
 
-A dead-stock diagnostic for a multi-branch discount grocery chain: 18 stores,
-10,000 items, one year of trading. Built end to end — data model, synthetic
-data generation, PostgreSQL analytical layer, Power BI dashboard.
+**A dimensional data model and diagnostic layer that turns a "zero sales" report into a costed, root-caused action list for a multi-branch discount grocery chain.**
 
-## The problem
+A conventional slow-mover report answers one question: *which items didn't sell?* It cannot tell you what that costs, and it cannot tell you why — so every dead item gets the same treatment, usually a discount. This project separates the causes and prices each one, because the correct action for seasonal stock is the opposite of the correct action for a genuine assortment failure.
 
-The business already has a 90-day zero-sales report. It identifies unsold items
-but doesn't measure the financial impact, explain the cause, or guide action —
-so it gets ignored and the problem persists.
+---
 
-This project turns that descriptive report into a **diagnostic** one: it
-quantifies the trapped capital, separates the root causes, and produces an
-actionable watchlist per store.
+## Headline finding
 
-**Headline finding:** most dead stock is not dead because customers rejected it.
-Of $662k in trapped capital, **54% is explained by fixable data, process and
-timing failures** — phantom stock, negative inventory blocking replenishment,
-and seasonal items misread as dead — rather than genuine lack of demand.
+**$677,890 of capital is trapped in stock that has not sold in 90 days** across 18 branches.
+
+| Root cause | Items | Trapped capital | Correct action |
+|---|---:|---:|---|
+| No demand — genuine assortment failure | 9,186 | $314,111 | Delist, clear, reallocate the shelf |
+| Out of season | 7,017 | $258,476 | **Do nothing** — it sells in season |
+| Phantom stock — system shows stock, shelf is empty | 888 | $105,303 | Physical count, stop replenishment |
+| Negative inventory — blocks auto-replenishment | 2,386 | $0 (clamped) | Fix the records first |
+
+Only 46% of the trapped capital is a true assortment problem. Discounting the 38% that is merely out of season would destroy margin on stock that was going to sell anyway — which is precisely what an uncategorised slow-mover report invites you to do.
+
+Negative stock is clamped to zero for valuation (a negative shelf is a data-integrity fault, not negative capital) and surfaced separately as its own watchlist.
+
+---
+
+## Secondary findings
+
+**Basket size scales with store format; price per item does not.**
+
+| Format | Items per basket | Basket value | Value per item |
+|---|---:|---:|---:|
+| Large | 6.84 | $30.51 | $4.46 |
+| Medium | 4.90 | $21.97 | $4.48 |
+| Small | 3.47 | $15.49 | $4.46 |
+
+A large branch's basket is worth twice a small branch's, and none of that gap comes from selling pricier goods. Customers buy *more items* at an identical average price. The lever for a small branch is basket breadth — adjacency, assortment, layout — not trading customers up.
+
+**Supplier lead time varies four-fold, from 4.8 to 19.8 days.** Long lead times force larger safety stock, which is itself a source of trapped capital. Vendor-managed and direct-store-delivery suppliers are excluded from this measure: their order and delivery are the same event, so lead time is undefined rather than zero.
+
+**Every branch breaches the 100-item negative-inventory threshold**, ranging from 202 to 287 items. A threshold that nothing passes indicates a systemic process failure in receiving and counting, not a handful of underperforming branches.
+
+**In-transit loss totals 2,402 units ($8,175)** across 1,188 transfer lines — stock that left one branch and never arrived at another. This is only measurable because a transfer is modelled as a document with two stores rather than as two unrelated movements.
+
+---
 
 ## Data model
 
-A **galaxy schema** (fact constellation): one fact table per business process,
-all sharing **conformed dimensions**.
+A **galaxy schema** (fact constellation): one fact table per business process, sharing conformed dimensions. 14 tables, 35 foreign keys, ~6.66M rows.
 
-| Process | Fact tables | Stock effect |
+![Schema](docs/schema_diagram.png)
+
+| Process | Tables | Moves stock? |
 |---|---|---|
-| Selling | `fact_receipt` / `fact_receipt_line` | out (sale), in (customer return) |
-| Ordering | `fact_purchase_order` / `fact_purchase_order_line` | **none** — a PO doesn't move stock |
-| Receiving | `fact_goods_receipt` / `fact_goods_receipt_line` | in (out if supplier return) |
-| Transferring | `fact_transfer` / `fact_transfer_line` | out at origin, **in at destination** |
-| Correcting | `fact_adjustment` | out (shrinkage, counts, damage, expiry) |
+| Selling | `fact_receipt` → `fact_receipt_line` | Yes |
+| Ordering | `fact_purchase_order` → `fact_purchase_order_line` | **No** |
+| Receiving | `fact_goods_receipt` → `fact_goods_receipt_line` | Yes |
+| Transferring | `fact_transfer` → `fact_transfer_line` | Yes |
+| Correcting | `fact_adjustment` | Yes |
 
-Conformed dimensions: `dim_product`, `dim_store`, `dim_date`, `dim_vendor`, `dim_staff`.
+Conformed dimensions: `dim_date`, `dim_store`, `dim_product`, `dim_vendor`, `dim_staff`.
 
-### Design decisions worth defending
+### Design decisions
 
-**Stock is never stored — it is derived.** There is no "current stock" column
-anywhere. Stock is reconstructed as a **running balance** over the movement
-ledger using a window function. `vw_daily_stock_balance` is validated to match
-`vw_stock_on_hand` exactly across all 89,478 item-store pairs.
+**Ordering and receiving are separate processes.** Raising a purchase order does not move stock — it is a promise. Stock moves on receipt. Collapsing the two would inflate inventory by every open PO and make the dead-stock figure fiction. `fact_purchase_order` therefore appears nowhere in the movement ledger.
 
-**Sales are stored once, at receipt grain.** They are never duplicated into a
-movement table. `vw_stock_movement` UNIONs the four stock-affecting processes
-into one complete ledger, so the two grains can never disagree.
+**A purchase order line can be received more than once.** Partial deliveries and separate supplier invoices are the norm, so ordered and received quantities cannot share a row. Receipts are aggregated to PO-line grain *before* joining; joining the one-to-many directly fans out `quantity_ordered` and deflates the fill rate — 75.8% instead of the true 88.4% in testing.
 
-**Ordering is separated from receiving.** One purchase order can produce several
-deliveries (partial delivery), each with its own supplier invoice. Keeping
-`quantity_ordered` and `quantity_received` on the same row would silently assume
-one order equals one delivery. Separating them makes **lead time**
-(`posting_date − order_date`) and **fill rate** correct rather than approximate.
+**A transfer has two stores.** A single-store movement table cannot express it. The header carries origin and destination; the movement view projects each transfer line into two rows, an outflow at origin and an inflow at destination. The difference between shipped and received is the in-transit loss.
 
-**A transfer carries two stores.** `from_store_id` and `to_store_id`, plus
-`quantity_shipped` vs `quantity_received`. One transfer line becomes **two rows**
-in the movement view — an OUT at the origin and an IN at the destination. This
-also exposes **in-transit loss**, which a single-store movement row cannot express.
+**Deliveries can arrive with no purchase order.** Vendor-managed inventory and direct-store-delivery suppliers set their own quantities on arrival, so `purchase_order_id` is nullable and those vendors are flagged for exclusion from lead-time analysis.
 
-**Vendor supply models are distinguished.** Vendor-managed inventory and direct
-store delivery suppliers set their own quantities and deliver with no prior PO.
-Their order and delivery are the same event, so lead time is undefined — they are
-explicitly excluded from lead-time analysis rather than silently averaged in.
+**Adjustments carry a signed quantity.** Shrinkage, damage and expiry only reduce stock, but a physical count corrects in either direction — a count that finds more than the system shows is how phantom stock gets cleared. A type-implied direction cannot express that.
 
-**Negative stock is clamped to zero for valuation** (you cannot hold negative
-capital on a shelf) and surfaced separately as its own watchlist, measured
-against the company's threshold of 100 negative items per store.
+**Sales are stored once, at receipt-line grain, and never copied into a movement table.** Daily sales and stock on hand are views. Storing an aggregate that can be derived is how two numbers in the same business start disagreeing.
 
-## Contents
+**Stock on hand is never stored.** It is reconstructed from the movement ledger with a window function, and reconciles exactly against an independent aggregate across all 89,464 item-store pairs.
+
+---
+
+## Repository
 
 ```
-generate.py            synthetic data generator (pandas + numpy, seeded)
-sql/01_schema.sql      DDL: 14 tables, keys, foreign keys, indexes
-sql/02_load.sql        COPY load script
-sql/03_views.sql       analytical layer (10 views)
-schema.dbml            the model, for dbdiagram.io
+scripts/generate.py      synthetic data generator (seeded, reproducible)
+scripts/make_diagram.py  ER diagram + DBML, generated from the live schema
+sql/01_schema.sql        DDL — 14 tables, 8 indexes
+sql/02_load.sql          bulk load via \copy, FK-safe order
+sql/03_views.sql         10 analytical views
+docs/                    schema diagram (PNG, SVG) and DBML source
 ```
 
-## Running it
+The generated CSVs (~250MB) are deliberately not committed. The generator and its seed reproduce them byte for byte, so the repository stores the source rather than the output.
+
+The ER diagram is generated by reading `information_schema` from the live database, so the picture cannot drift from the schema it documents.
+
+## Reproducing it
 
 ```bash
-python3 generate.py --profile full        # ~2 min, writes ./data_full
-createdb tawfeer
-psql -d tawfeer -f sql/01_schema.sql
-cd data_full && psql -d tawfeer -f ../sql/02_load.sql
-psql -d tawfeer -f sql/03_views.sql
+createdb retail_intelligence
+python3 scripts/generate.py --profile full --outdir data
+psql -d retail_intelligence -f sql/01_schema.sql
+cd data && psql -d retail_intelligence -f ../sql/02_load.sql && cd ..
+psql -d retail_intelligence -f sql/03_views.sql
 ```
 
-`--profile sample` generates a small dataset (3 stores, 300 items, 21 days) for
-quick iteration.
+Requires PostgreSQL 14+, Python 3.11+ with pandas and numpy, and Graphviz for the diagram. Full profile: 10,000 products, 18 stores, 365 days. A `--profile sample` option generates a small dataset for quick iteration.
 
-## The data
-
-Synthetic, generated with a fixed seed, using real Lebanese retail content
-(brands, bilingual English/Arabic descriptions, discount-grocery price bands,
-Lebanese regions). No real company data is used.
-
-| Table | Rows |
-|---|---|
-| `fact_receipt_line` | 3,851,963 |
-| `fact_goods_receipt_line` | 1,215,279 |
-| `fact_purchase_order_line` | 841,268 |
-| `fact_receipt` | 668,046 |
-| `fact_adjustment` | 28,886 |
-| `fact_goods_receipt` | 18,844 |
-| `fact_transfer_line` | 14,353 |
-| `fact_purchase_order` | 12,168 |
-| `fact_transfer` | 5,078 |
-| `dim_product` | 10,000 |
-
-Five problems are deliberately planted so the diagnostic has something real to
-find: genuine no-demand items, phantom stock, negative inventory, seasonal
-items, and format-level cannibalization (a mid-size pack suppressed by the
-large one). Supplier lead times, fill-rate shortfalls and in-transit transfer
-losses are generated with realistic variation rather than fixed rules, so the
-analysis discovers patterns rather than confirming planted ones.
-
-## Key views
+## Analytical views
 
 | View | Answers |
 |---|---|
-| `vw_stock_movement` | the unified movement ledger across all four processes |
-| `vw_daily_stock_balance` | stock reconstructed day by day (running balance) |
-| `vw_stock_on_hand` | closing stock per item / store |
-| `vw_dead_stock_diagnostic` | trapped capital + root cause per dead item |
-| `vw_negative_inventory` | per-store negative counts vs the 100-item threshold |
-| `vw_supplier_performance` | lead time and fill rate, VMI excluded |
-| `vw_transfer_loss` | stock that left one store and never arrived |
-| `vw_basket_profile` | basket size by count and by value, per store |
-| `vw_format_demand` | does pack size predict which items die? |
-| `vw_daily_sales` | daily sales rolled up from receipt lines |
+| `vw_stock_movement` | The unified ledger — every stock-affecting event from four processes |
+| `vw_daily_stock_balance` | Running stock balance per item, store and day |
+| `vw_stock_on_hand` | Closing balance per item and store |
+| `vw_daily_sales` | Units and revenue by item, store and day |
+| `vw_dead_stock_diagnostic` | Trapped capital with root cause |
+| `vw_negative_inventory` | Branches breaching the negative-stock threshold |
+| `vw_supplier_performance` | Lead time and fill rate, VMI-aware |
+| `vw_transfer_loss` | Units and value lost in transit |
+| `vw_basket_profile` | Basket size by count and value, per format |
+| `vw_format_demand` | Sell-through across pack sizes of the same brand |
 
-## Results
+---
 
-| Measure | Value |
-|---|---|
-| Total stock value | $3.6M |
-| Trapped capital (90-day zero sales) | **$662k (18.4%)** |
-| — genuine no demand | $305k (46%) |
-| — out of season | $254k (38%) |
-| — phantom stock | $103k (16%) |
-| Negative inventory | 4,006 item-store pairs; **all 18 stores breach** the 100-item threshold |
-| Supplier lead time (ordered vendors) | 12.9 days average |
-| Supplier fill rate | 88.4% |
-| In-transit transfer loss | 2,402 units / $8,175 |
+## Scope and limitations
 
-## Next
+The data is **synthetic**, generated to exhibit the conditions the diagnostic is built to detect: slow and dead demand tiers, seasonal stock, phantom stock arising from a buyer reordering against a system figure the shelf does not support, negative inventory from cut-off errors, and in-transit loss. The problems are planted; the *detection logic* is not told where they are, so the diagnostic has to find them.
 
-Power BI dashboard over the view layer: trapped-capital overview, root-cause
-breakdown, per-store negative-inventory watchlist, supplier scorecard, and
-basket profile.
+Consequences worth stating plainly:
+
+- **Fill rate does not discriminate between suppliers.** The ten worst span 87.2%–87.9%, because the generator applies a common delivery probability. Lead time varies realistically; fill rate does not. It is reported but should not be read as a supplier scorecard.
+- **Pack-size stock value is confounded by unit cost.** Larger packs cost more, so they show more capital per item regardless of demand. Answering the cannibalisation question properly requires a sell-through measure that normalises pack size out — not yet built.
+- The model omits promotions, price history, supplier lead-time agreements, and an `entered_at` audit column for late-arriving corrections. Each was considered and scoped out rather than overlooked.
+
+## Stack
+
+PostgreSQL 14 · Python 3.11 (pandas, numpy) · Graphviz · Power BI (dashboard layer)
