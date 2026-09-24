@@ -3,7 +3,7 @@
 so the picture can never drift from the database."""
 import subprocess, textwrap, html
 
-DB = "tawfeer"
+DB = "retail_intelligence"
 
 def q(sql):
     out = subprocess.run(["su","postgres","-c",
