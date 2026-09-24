@@ -215,6 +215,18 @@ def generate(P, outdir):
     # =========================================================
     basket_mu={"Large":7.0,"Medium":5.0,"Small":3.5}
     recv_mu  ={"Large":P["base_receipts"]*3,"Medium":P["base_receipts"]*2,"Small":P["base_receipts"]}
+    _seq = {}
+    def docnum(prefix, d):
+        k = (prefix, d.year)
+        _seq[k] = _seq.get(k, 0) + 1
+        return f"{prefix}-{d.year % 100:02d}{_seq[k]:08d}"
+
+    _rseq = {}
+    def receiptnum(store, d):
+        k = (store, d)
+        _rseq[k] = _rseq.get(k, 0) + 1
+        return f"{store:02d}-{d.strftime('%y%m%d')}-{_rseq[k]:04d}"
+
     receipts=[]; rlines=[]; rid=1; rlid=1; pcache={}
     for d in dates:
         did=int(d.strftime("%Y%m%d")); mo=d.month
@@ -241,10 +253,10 @@ def generate(P, outdir):
                     amt=round(q*price[int(it)],2)
                     rlines.append((rlid,rid,int(it),int(s),did,q,amt)); rlid+=1
                     tot+=amt; cnt+=q
-                receipts.append((rid,int(s),did,ts.isoformat(sep=' '),int(rng.choice(sids)),
+                receipts.append((rid,receiptnum(int(s),d),int(s),did,ts.isoformat(sep=' '),int(rng.choice(sids)),
                                  round(tot,2),cnt)); rid+=1
 
-    W(pd.DataFrame(receipts,columns=["ReceiptID","StoreID","DateID","ReceiptDatetime",
+    W(pd.DataFrame(receipts,columns=["ReceiptID","ReceiptNumber","StoreID","DateID","ReceiptDatetime",
                                      "StaffID","TotalAmount","TotalItems"]),"fact_receipt.csv")
     n_receipts=len(receipts); del receipts; gc.collect()
 
@@ -278,7 +290,7 @@ def generate(P, outdir):
             tlines.append((tlid,tid,int(it),int(post.strftime("%Y%m%d")),sh,rc,amt)); tlid+=1
             tr_delta[(int(it),int(f))]=tr_delta.get((int(it),int(f)),0)-sh
             tr_delta[(int(it),int(t))]=tr_delta.get((int(it),int(t)),0)+rc
-        transfers.append((tid,f"TR{tid:07d}",int(f),int(t),ship.isoformat(),post.isoformat(),
+        transfers.append((tid,docnum("TO",post),int(f),int(t),ship.isoformat(),post.isoformat(),
                           int(post.strftime("%Y%m%d")),round(tot,2))); tid+=1
     W(pd.DataFrame(transfers,columns=["TransferID","TransferNumber","FromStoreID","ToStoreID",
         "ShipmentDate","PostingDate","DateID","TotalAmount"]),"fact_transfer.csv")
@@ -340,15 +352,15 @@ def generate(P, outdir):
             if not ordered_model:
                 lines=[(it,q*len(cycles)/len(cycles)) for it,q in lines]
 
-            po_id=None
+            po_id=None; po_no=None
             if ordered_model:
-                tot=0.0; po_id=poid
+                tot=0.0; po_id=poid; po_no=docnum("PO",d0)
                 for it,q in lines:
                     qo=int(max(1,rng.normal(q/0.85,max(1.0,q*0.15))))   # order allowing for shortfall
                     amt=round(qo*cost[it],2); tot+=amt
                     polines.append((polid,po_id,it,int(s),int(d0.strftime("%Y%m%d")),qo,amt))
                     poline_of[(po_id,it)]=polid; polid+=1
-                pos.append((po_id,f"PO{po_id:07d}",v,int(s),int(rng.choice(buyers)),
+                pos.append((po_id,po_no,v,int(s),int(rng.choice(buyers)),
                             d0.isoformat(),int(d0.strftime("%Y%m%d")),round(tot,2))); poid+=1
 
             # ---- delivery/ies ----
@@ -368,7 +380,8 @@ def generate(P, outdir):
                                     int(pd_.strftime("%Y%m%d")),qr,amt))
                     grlid+=1
                 if tot<=0: continue
-                grs.append((gr,f"GRN{gr:07d}",po_id,
+                gr_no = f"{po_no}-{si+1:02d}" if po_no else docnum("DD",pd_)
+                grs.append((gr,gr_no,po_id,
                             f"INV-{int(rng.integers(1000,99999))}",v,int(s),
                             pd_.isoformat(),int(pd_.strftime("%Y%m%d")),False,round(tot,2)))
                 grid_+=1
@@ -382,7 +395,7 @@ def generate(P, outdir):
         for it in rng.choice(items,size=min(3,len(items)),replace=False):
             q=int(rng.integers(1,10)); amt=round(q*cost[int(it)],2); tot+=amt
             grlines.append((grlid,gr,None,int(it),s,int(d.strftime("%Y%m%d")),q,amt)); grlid+=1
-        grs.append((gr,f"GRN{gr:07d}",None,f"CN-{int(rng.integers(1000,99999))}",v,s,
+        grs.append((gr,docnum("RO",d),None,f"CN-{int(rng.integers(1000,99999))}",v,s,
                     d.isoformat(),int(d.strftime("%Y%m%d")),True,round(tot,2))); grid_+=1
 
     # ---- received totals, for the negative-inventory injection ----
@@ -422,7 +435,7 @@ def generate(P, outdir):
         "QuantityOrdered","Amount"]),"fact_purchaseorderline.csv")
     # nullable FKs must stay integers: plain float columns would emit "1.0",
     # which PostgreSQL rejects for an INTEGER column.
-    _gr=pd.DataFrame(grs,columns=["GoodsReceiptID","GRNumber","PurchaseOrderID","SupplierInvoiceNumber",
+    _gr=pd.DataFrame(grs,columns=["GoodsReceiptID","DocumentNumber","PurchaseOrderID","SupplierInvoiceNumber",
         "VendorID","StoreID","PostingDate","DateID","IsSupplierReturn","TotalAmount"])
     _gr["PurchaseOrderID"]=_gr.PurchaseOrderID.astype("Int64")
     W(_gr,"fact_goodsreceipt.csv")

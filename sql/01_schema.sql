@@ -87,6 +87,7 @@ CREATE TABLE dim_staff (
 -- ------------------------------------------------------------
 CREATE TABLE fact_receipt (
     receipt_id       INTEGER PRIMARY KEY,
+    receipt_number   VARCHAR(30),
     store_id         INTEGER REFERENCES dim_store(store_id),
     date_id          INTEGER REFERENCES dim_date(date_id),
     receipt_datetime TIMESTAMP,
@@ -134,7 +135,7 @@ CREATE TABLE fact_purchase_order_line (
 -- ------------------------------------------------------------
 CREATE TABLE fact_goods_receipt (
     goods_receipt_id        INTEGER PRIMARY KEY,
-    gr_number               VARCHAR(20),
+    document_number         VARCHAR(20),
     purchase_order_id       INTEGER REFERENCES fact_purchase_order(purchase_order_id),  -- NULL for VMI/DSD
     supplier_invoice_number VARCHAR(30),      -- supplier's own number: NOT globally unique
     vendor_id               INTEGER REFERENCES dim_vendor(vendor_id),
