@@ -73,7 +73,10 @@ JOIN   fact_transfer      t USING (transfer_id)
 UNION ALL
 -- CORRECTING
 SELECT a.item_number, a.store_id, a.posting_date, a.date_id,
-       a.adjustment_type, 0, a.quantity, 'ADJ' || a.adjustment_id
+       a.adjustment_type,
+       CASE WHEN a.quantity > 0 THEN  a.quantity ELSE 0 END,
+       CASE WHEN a.quantity < 0 THEN -a.quantity ELSE 0 END,
+       'ADJ' || a.adjustment_id
 FROM   fact_adjustment a;
 
 
