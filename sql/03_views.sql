@@ -186,7 +186,7 @@ WHERE  ls.last_sale_date IS NULL
 
 -- ------------------------------------------------------------
 -- NEGATIVE INVENTORY WATCHLIST
--- Tawfeer's rule: no more than 100 negative items per store.
+-- Business rule: no more than 100 negative items per store.
 -- ------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_negative_inventory AS
 SELECT st.store_id, st.store_name, st.region,
