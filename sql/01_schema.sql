@@ -70,7 +70,7 @@ CREATE TABLE dim_product (
     pack_size       VARCHAR(20),              -- format: 330ml, 1L, 500g
     uom             VARCHAR(20),
     vendor_id       INTEGER REFERENCES dim_vendor(vendor_id),
-    unit_cost       NUMERIC(12,2),            -- what Tawfeer pays the supplier
+    unit_cost       NUMERIC(12,2),            -- what the chain pays the supplier
     unit_price      NUMERIC(12,2),            -- what the customer pays
     season          VARCHAR(20)
 );

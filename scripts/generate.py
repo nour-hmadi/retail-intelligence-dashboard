@@ -102,8 +102,8 @@ def build_dimensions(P):
     stype = np.where(sizes=="Large","Hypermarket", np.where(sizes=="Medium","Supermarket","Express"))
     stores = pd.DataFrame({
         "StoreID": range(1,n+1),
-        "StoreCode":[f"TWF{100+i}" for i in range(n)],
-        "StoreName":[f"Tawfeer {REGIONS[i%len(REGIONS)]} {i+1}" for i in range(n)],
+        "StoreCode":[f"BR{100+i}" for i in range(n)],
+        "StoreName":[f"{REGIONS[i%len(REGIONS)]} {i+1}" for i in range(n)],
         "StoreType":stype, "StoreSize":sizes,
         "Region":[REGIONS[i%len(REGIONS)] for i in range(n)],
     })
