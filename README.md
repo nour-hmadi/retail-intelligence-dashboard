@@ -43,6 +43,18 @@ A large branch's basket is worth twice a small branch's, and none of that gap co
 
 ---
 
+---
+
+## Dashboard
+
+Built in Power BI over the analytical layer above. Two pages: an overview answering how much, why and where, and a detail page breaking the capital down by category and region.
+
+![Overview](docs/dashboard/page1_overview.png)
+
+![Detail](docs/dashboard/page2_detail.png)
+
+The report is in docs/dashboard/ as a .pbix and a PDF. The semantic model is a star schema with nine tables, single-direction filters, and measures written in DAX.
+
 ## Data model
 
 A **galaxy schema** (fact constellation): one fact table per business process, sharing conformed dimensions. 14 tables, 35 foreign keys, ~6.66M rows.

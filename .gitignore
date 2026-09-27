@@ -2,3 +2,7 @@ data/
 *.csv
 __pycache__/
 .ipynb_checkpoints/
+
+powerbi/
+*.xlsx
+*.zip
